@@ -54,6 +54,8 @@ function UpdateWeaponToPlayerCountMap() {
     }
 }
 
+var GLOBAL_UI_REFRESH_NEEDED = false;
+
 class WeaponPlayerCountWidget {
     staticWidget: mod.UIWidget|undefined;
     playerCountWidgets: Map<mod.Weapons, mod.UIWidget> = new Map();
@@ -283,11 +285,30 @@ class JsPlayer {
 }
 
 
+export function OngoingGlobal() {
+    if (GLOBAL_UI_REFRESH_NEEDED) {
+        UpdateWeaponToPlayerCountMap();
+        WEAPON_PLAYER_COUNT_WIDGET?.UpdatePlayerCountWidgets();
+    }
+    GLOBAL_UI_REFRESH_NEEDED = false;
+}
+
+
 export async function OnGameModeStarted() {
     mod.SetSpawnMode(mod.SpawnModes.AutoSpawn);
     CreateAvailableWeapons();
-    UpdateWeaponToPlayerCountMap();
+    GLOBAL_UI_REFRESH_NEEDED = true;
     WEAPON_PLAYER_COUNT_WIDGET = new WeaponPlayerCountWidget();
+}
+
+
+export function OnPlayerJoinGame(eventPlayer: mod.Player) {
+    GLOBAL_UI_REFRESH_NEEDED = true;
+}
+
+
+export function OnPlayerLeaveGame(eventNumber: number) {
+    GLOBAL_UI_REFRESH_NEEDED = true;
 }
 
 
@@ -326,7 +347,7 @@ function UpdatePlayerWeapons(player: mod.Player) {
 export function OnPlayerDeployed(eventPlayer: mod.Player): void {
     ResetPlayer(eventPlayer);
     UpdatePlayerWeapons(eventPlayer);
-    UpdateWeaponToPlayerCountMap();
+    GLOBAL_UI_REFRESH_NEEDED = true;
     let jsPlayer = JsPlayer.get(eventPlayer);
     if (jsPlayer) {
         jsPlayer.UpdateProgressUI();
@@ -361,9 +382,8 @@ export function OnPlayerEarnedKill(
     if ((jsPlayer.kill_index & 1) == 0) {
         UpdatePlayerWeapons(eventPlayer);
     }
-    UpdateWeaponToPlayerCountMap();
+    GLOBAL_UI_REFRESH_NEEDED = true;
     jsPlayer.UpdateProgressUI();
-    WEAPON_PLAYER_COUNT_WIDGET?.UpdatePlayerCountWidgets();
 }
 
 

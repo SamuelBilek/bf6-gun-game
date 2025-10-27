@@ -365,25 +365,27 @@ export function OnPlayerEarnedKill(
     if (!jsPlayer) {
         return;
     }
-    let weaponIndex = jsPlayer.getWeaponIndex();
+    let weaponIndexPrev = jsPlayer.getWeaponIndex();
     if (mod.EventDeathTypeCompare(eventDeathType, mod.PlayerDeathTypes.Melee)) {
         let jsOtherPlayer = JsPlayer.get(eventOtherPlayer);
         if (jsOtherPlayer) {
             jsOtherPlayer.kill_index = Math.max(jsOtherPlayer.kill_index - 1, 0);
         }
         // Knife kill after all weapons completed
-        if (weaponIndex >= AVAILABLE_WEAPONS.length) {
+        if (weaponIndexPrev >= AVAILABLE_WEAPONS.length) {
             mod.EndGameMode(eventPlayer);
             return;
         }
+        // Extra point for melee kill, but only if not game-ending
+        jsPlayer.kill_index += 1;
     }
     jsPlayer.kill_index += 1;
-    // Modulo 2
-    if ((jsPlayer.kill_index & 1) == 0) {
+    let weaponIndexNew = jsPlayer.getWeaponIndex();
+    if (weaponIndexNew > weaponIndexPrev) {
         UpdatePlayerWeapons(eventPlayer);
+        jsPlayer.UpdateProgressUI();
     }
     GLOBAL_UI_REFRESH_NEEDED = true;
-    jsPlayer.UpdateProgressUI();
 }
 
 

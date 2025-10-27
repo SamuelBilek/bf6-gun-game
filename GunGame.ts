@@ -318,9 +318,11 @@ function ResetPlayer(player: mod.Player) {
         return;
     }
     for (let slot of INVENTORY_SLOTS) {
-        mod.RemoveEquipment(player, slot);
+        if (!(slot === mod.InventorySlots.MeleeWeapon || slot === mod.InventorySlots.PrimaryWeapon)) {
+            mod.RemoveEquipment(player, slot);
+        }
     }
-    mod.AddEquipment(player, MELEE);
+    mod.AddEquipment(player, MELEE, mod.InventorySlots.MeleeWeapon);
 }
 
 
@@ -329,23 +331,18 @@ function UpdatePlayerWeapons(player: mod.Player) {
     if (!jsPlayer) {
         return;
     }
-
+    ResetPlayer(player);
     let weaponIndex = jsPlayer.getWeaponIndex();
     // Melee level after all weapons completed
     if (weaponIndex >= AVAILABLE_WEAPONS.length) {
-        ResetPlayer(player);
         return;
     }
     let weapon = AVAILABLE_WEAPONS[weaponIndex];
-    if (!mod.HasEquipment(player, weapon)) {
-        ResetPlayer(player);
-        mod.AddEquipment(player, weapon);
-    }
+    mod.AddEquipment(player, weapon, mod.InventorySlots.PrimaryWeapon);
 }
 
 
 export function OnPlayerDeployed(eventPlayer: mod.Player): void {
-    ResetPlayer(eventPlayer);
     UpdatePlayerWeapons(eventPlayer);
     GLOBAL_UI_REFRESH_NEEDED = true;
     let jsPlayer = JsPlayer.get(eventPlayer);

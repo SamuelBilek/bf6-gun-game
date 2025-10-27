@@ -163,6 +163,7 @@ class JsPlayer {
 
 
 export async function OnGameModeStarted() {
+    mod.SetSpawnMode(mod.SpawnModes.AutoSpawn);
     CreateAvailableWeapons();
     UpdateWeaponToPlayerCountMap();
 }

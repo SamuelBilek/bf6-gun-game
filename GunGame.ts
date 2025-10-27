@@ -23,12 +23,9 @@ function CreateAvailableWeapons(): void {
 const PROGRESS_BAR_ITEM_WIDTH = 100;
 const WEAPON_ICON_ITEM_HEIGHT = 35;
 const WEAPON_COUNT_ITEM_HEIGHT = 20;
-const PROGRESS_BAR_ITEM_HEIGHT = WEAPON_ICON_ITEM_HEIGHT + WEAPON_COUNT_ITEM_HEIGHT;
 
 const SEPARATOR_WIDTH = 2;
-const SEPARATOR_HEIGHT = PROGRESS_BAR_ITEM_HEIGHT;
 const PROGRESS_BAR_WIDTH = PROGRESS_BAR_ITEM_WIDTH * (WEAPON_LEVELS + 1) + SEPARATOR_WIDTH * WEAPON_LEVELS; // +1 for melee
-const PROGRESS_BAR_HEIGHT = PROGRESS_BAR_ITEM_HEIGHT;
 const PROGRESS_BAR_Y_OFFSET = 30;
 
 const PROGRESS_BAR_ITEM_BASE_COLOR = [0, 0, 0];
@@ -41,31 +38,207 @@ var MELEE_PLAYER_COUNT = 0;
 function UpdateWeaponToPlayerCountMap() {
     // Wish I could just call AllPlayers and simply iterate over it :(
     let allPlayers = JsPlayer.getAllAsArray();
-    let melee_count = 0;
+    MELEE_PLAYER_COUNT = 0;
     for (const weapon of AVAILABLE_WEAPONS) {
-        let count = 0;
-        for (const jsPlayer of allPlayers) {
-            if (jsPlayer.currentWeapon === weapon) {
-                count += 1;
-            }
-            if (jsPlayer.has_melee_level) {
-                melee_count += 1;
-            }
-        }
-        WEAPON_TO_PLAYER_COUNT_MAP.set(weapon, count);
+        WEAPON_TO_PLAYER_COUNT_MAP.set(weapon, 0);
     }
-    MELEE_PLAYER_COUNT = melee_count;
+    for (const jsPlayer of allPlayers) {
+        let weaponIndex = jsPlayer.getWeaponIndex();
+        if (weaponIndex >= AVAILABLE_WEAPONS.length) {
+            MELEE_PLAYER_COUNT += 1;
+            continue;
+        }
+        let weapon = AVAILABLE_WEAPONS[weaponIndex];
+        let currentCount = WEAPON_TO_PLAYER_COUNT_MAP.get(weapon) ?? 0;
+        WEAPON_TO_PLAYER_COUNT_MAP.set(weapon, currentCount + 1);
+    }
 }
 
+class WeaponPlayerCountWidget {
+    staticWidget: mod.UIWidget|undefined;
+    playerCountWidgets: Map<mod.Weapons, mod.UIWidget> = new Map();
+    prevPlayerCountMap: Map<mod.Weapons, number> = new Map();
+    meleeCountWidget: mod.UIWidget|undefined;
+    prevMeleeCount: number = -1;
+
+    constructor() {
+        this.CreateStaticWidget();
+        this.UpdatePlayerCountWidgets();
+    }
+
+    CreateStaticWidget() {
+        this.staticWidget = ParseUI({
+            type: "Container",
+            position: [0, PROGRESS_BAR_Y_OFFSET + WEAPON_ICON_ITEM_HEIGHT],
+            size: [PROGRESS_BAR_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
+            anchor: mod.UIAnchor.TopCenter,
+            bgFill: mod.UIBgFill.None,
+        });
+        for (let i = 0; i < AVAILABLE_WEAPONS.length; i++) {
+            ParseUI({
+                type: "Container",
+                position: [i * PROGRESS_BAR_ITEM_WIDTH, 0],
+                size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
+                anchor: mod.UIAnchor.TopLeft,
+                parent: this.staticWidget,
+                bgColor: PROGRESS_BAR_ITEM_BASE_COLOR,
+                bgFill: mod.UIBgFill.Blur,
+            });
+            ParseUI({
+                type: "Container",
+                position: [(i + 1) * PROGRESS_BAR_ITEM_WIDTH, 0],
+                size: [SEPARATOR_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
+                anchor: mod.UIAnchor.TopLeft,
+                bgFill: mod.UIBgFill.Solid,
+                bgColor: SEPARATOR_COLOR,
+                parent: this.staticWidget,
+            });
+        }
+        ParseUI({
+            type: "Container",
+            position: [AVAILABLE_WEAPONS.length * PROGRESS_BAR_ITEM_WIDTH, 0],
+            size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
+            anchor: mod.UIAnchor.TopLeft,
+            parent: this.staticWidget,
+            bgColor: PROGRESS_BAR_ITEM_BASE_COLOR,
+            bgFill: mod.UIBgFill.Blur,
+        });
+    }
+
+    UpdatePlayerCountWidgets() {
+        for (const [i, weapon] of AVAILABLE_WEAPONS.entries()) {
+            let widget = this.playerCountWidgets.get(weapon);
+            let currentCount = WEAPON_TO_PLAYER_COUNT_MAP.get(weapon) ?? 0;
+            let prevCount = this.prevPlayerCountMap.get(weapon) ?? -1;
+            let refreshNeeded = currentCount !== prevCount;
+            if (widget && refreshNeeded) {
+                mod.DeleteUIWidget(widget);
+            }
+            if (refreshNeeded) {
+                widget = ParseUI({
+                    type: "Text",
+                    position: [i * PROGRESS_BAR_ITEM_WIDTH, 0],
+                    size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
+                    anchor: mod.UIAnchor.TopLeft,
+                    textAnchor: mod.UIAnchor.Center,
+                    textLabel: MakeMessage("${}", WEAPON_TO_PLAYER_COUNT_MAP.get(weapon) ?? 0),
+                    parent: this.staticWidget,
+                });
+                this.playerCountWidgets.set(weapon, widget!);
+                this.prevPlayerCountMap.set(weapon, currentCount);
+            }
+        }
+        let refreshNeeded = MELEE_PLAYER_COUNT !== this.prevMeleeCount;
+        if (this.meleeCountWidget && refreshNeeded) {
+            mod.DeleteUIWidget(this.meleeCountWidget);
+        }
+        if (refreshNeeded) {
+            this.meleeCountWidget = ParseUI({
+                type: "Text",
+                position: [AVAILABLE_WEAPONS.length * PROGRESS_BAR_ITEM_WIDTH, 0],
+                size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
+                anchor: mod.UIAnchor.TopLeft,
+                textAnchor: mod.UIAnchor.Center,
+                textLabel: MakeMessage("${}", MELEE_PLAYER_COUNT),
+                parent: this.staticWidget,
+            });
+            this.prevMeleeCount = MELEE_PLAYER_COUNT;
+        }
+    }
+}
+
+var WEAPON_PLAYER_COUNT_WIDGET: WeaponPlayerCountWidget|undefined = undefined;
+
+
+class WeaponProgressWidget {
+    player: mod.Player;
+    staticWidget: mod.UIWidget|undefined;
+    weaponItemWidgets: Map<mod.Weapons, mod.UIWidget> = new Map();
+    meleeItemWidget: mod.UIWidget|undefined;
+    prevActiveWeapon: mod.Weapons|undefined = undefined;
+    prevMeleeActive: boolean = false;
+
+    constructor(player: mod.Player) {
+        this.player = player;
+        this.CreateStaticWidget();
+        this.UpdateWeaponItemWidgets();
+    }
+
+    CreateStaticWidget() {
+        this.staticWidget = ParseUI({
+            type: "Container",
+            position: [0, PROGRESS_BAR_Y_OFFSET],
+            size: [PROGRESS_BAR_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
+            anchor: mod.UIAnchor.TopCenter,
+            playerId: this.player,
+            visible: true,
+            bgFill: mod.UIBgFill.None,
+        });
+        for (const [i, weapon] of AVAILABLE_WEAPONS.entries()) {
+            ParseUI({
+                type: "Container",
+                position: [(i + 1) * PROGRESS_BAR_ITEM_WIDTH, 0],
+                size: [SEPARATOR_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
+                anchor: mod.UIAnchor.TopLeft,
+                bgFill: mod.UIBgFill.Solid,
+                bgColor: SEPARATOR_COLOR,
+                parent: this.staticWidget,
+            });
+        }
+    }
+    UpdateWeaponItemWidgets() {
+        let hasFirearm = false;
+        for (const [i, weapon] of AVAILABLE_WEAPONS.entries()) {
+            let hasEquipment = mod.HasEquipment(this.player, weapon);
+            hasFirearm = hasFirearm || hasEquipment;
+            let refreshNeeded = (hasEquipment && (this.prevActiveWeapon !== weapon) || (!hasEquipment && this.prevActiveWeapon === weapon));
+            let widget = this.weaponItemWidgets.get(weapon);
+            if (widget && refreshNeeded) {
+                mod.DeleteUIWidget(widget);
+                widget = undefined;
+            }
+            if (!widget) {
+                widget = ParseUI({
+                    type: "Container",
+                    position: [i * PROGRESS_BAR_ITEM_WIDTH, 0],
+                    size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
+                    anchor: mod.UIAnchor.TopLeft,
+                    bgFill: hasEquipment ? mod.UIBgFill.Solid : mod.UIBgFill.Blur,
+                    bgColor: hasEquipment ? PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR : PROGRESS_BAR_ITEM_BASE_COLOR,
+                    parent: this.staticWidget,
+                });
+                mod.AddUIWeaponImage(String(weapon), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT, 1), mod.UIAnchor.Center, weapon, widget!);
+                this.weaponItemWidgets.set(weapon, widget!);
+                this.prevActiveWeapon = weapon;
+            }
+        }
+        let refreshNeeded = this.prevMeleeActive === hasFirearm;
+        if (this.meleeItemWidget && refreshNeeded) {
+            mod.DeleteUIWidget(this.meleeItemWidget);
+            this.meleeItemWidget = undefined;
+        }
+        if (!this.meleeItemWidget) {
+            this.meleeItemWidget = ParseUI({
+                type: "Container",
+                position: [AVAILABLE_WEAPONS.length * PROGRESS_BAR_ITEM_WIDTH, 0],
+                size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
+                anchor: mod.UIAnchor.TopLeft,
+                bgFill: !hasFirearm ? mod.UIBgFill.Solid : mod.UIBgFill.Blur,
+                bgColor: !hasFirearm ? PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR : PROGRESS_BAR_ITEM_BASE_COLOR,
+                parent: this.staticWidget,
+            });
+            mod.AddUIGadgetImage(String(MELEE), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT, 1), mod.UIAnchor.Center, MELEE, this.meleeItemWidget!);
+            this.prevMeleeActive = !hasFirearm;
+        }
+    }
+}
 
 class JsPlayer {
     player: mod.Player;
     playerId: number;
     kill_index = 0;
-    currentWeapon: mod.Weapons|undefined;
-    has_melee_level = false;
 
-    progressWidget: mod.UIWidget|undefined;
+    progressWidget: WeaponProgressWidget|undefined;
 
     static playerInstances: mod.Player[] = [];
 
@@ -74,6 +247,7 @@ class JsPlayer {
         this.playerId = mod.GetObjId(player);
         JsPlayer.playerInstances.push(this.player);
 
+        this.progressWidget = new WeaponProgressWidget(this.player);
         this.UpdateProgressUI();
     }
 
@@ -95,93 +269,16 @@ class JsPlayer {
         return undefined;
     }
 
+    getWeaponIndex() {
+        return Math.floor(this.kill_index / 2);
+    }
+
     static getAllAsArray() {
         return Object.values(this.#allJsPlayers);
     }
 
     UpdateProgressUI() {
-        if (this.progressWidget) {
-            mod.DeleteUIWidget(this.progressWidget);
-        }
-        this.progressWidget = ParseUI({
-            type: "Container",
-            position: [0, PROGRESS_BAR_Y_OFFSET],
-            size: [PROGRESS_BAR_WIDTH, PROGRESS_BAR_HEIGHT],
-            anchor: mod.UIAnchor.TopCenter,
-            playerId: this.player,
-            visible: true,
-            bgFill: mod.UIBgFill.None,
-        });
-        let hasFirearm = false;
-        for (const [i, weapon] of AVAILABLE_WEAPONS.entries()) {
-            let hasEquipment = mod.HasEquipment(this.player, weapon);
-            hasFirearm = hasFirearm || hasEquipment;
-            let weaponItemWidget = ParseUI({
-                type: "Container",
-                position: [i * PROGRESS_BAR_ITEM_WIDTH, 0],
-                size: [PROGRESS_BAR_ITEM_WIDTH, PROGRESS_BAR_ITEM_HEIGHT],
-                anchor: mod.UIAnchor.TopLeft,
-                bgFill: mod.UIBgFill.Blur,
-                bgColor: PROGRESS_BAR_ITEM_BASE_COLOR,
-                parent: this.progressWidget,
-            });
-            let weaponIconWidget = ParseUI({
-                type: "Container",
-                size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
-                anchor: mod.UIAnchor.TopLeft,
-                bgFill: hasEquipment ? mod.UIBgFill.Solid : mod.UIBgFill.Blur,
-                bgColor: hasEquipment ? PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR : PROGRESS_BAR_ITEM_BASE_COLOR,
-                parent: weaponItemWidget,
-            });    
-            mod.AddUIWeaponImage(String(weapon), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, PROGRESS_BAR_ITEM_HEIGHT, 1), mod.UIAnchor.Center, weapon, weaponIconWidget!);
-            
-            ParseUI({
-                type: "Text",
-                position: [0, WEAPON_ICON_ITEM_HEIGHT],
-                size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
-                anchor: mod.UIAnchor.TopLeft,
-                textAnchor: mod.UIAnchor.Center,
-                textLabel: MakeMessage("${}", WEAPON_TO_PLAYER_COUNT_MAP.get(weapon) ?? 0),
-                parent: weaponItemWidget,
-            });
-
-            ParseUI({
-                type: "Container",
-                position: [(i + 1) * PROGRESS_BAR_ITEM_WIDTH, 0],
-                size: [SEPARATOR_WIDTH, SEPARATOR_HEIGHT],
-                anchor: mod.UIAnchor.TopLeft,
-                bgFill: mod.UIBgFill.Solid,
-                bgColor: SEPARATOR_COLOR,
-                parent: this.progressWidget,
-            });
-        }
-        let meleeWidget = ParseUI({
-            type: "Container",
-            position: [AVAILABLE_WEAPONS.length * PROGRESS_BAR_ITEM_WIDTH, 0],
-            size: [PROGRESS_BAR_ITEM_WIDTH, PROGRESS_BAR_ITEM_HEIGHT],
-            anchor: mod.UIAnchor.TopLeft,
-            bgFill: !hasFirearm ? mod.UIBgFill.Solid : mod.UIBgFill.Blur,
-            bgColor: !hasFirearm ? PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR : PROGRESS_BAR_ITEM_BASE_COLOR,
-            parent: this.progressWidget,
-        });
-        let meleeIconWidget = ParseUI({
-            type: "Container",
-            size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
-            anchor: mod.UIAnchor.TopLeft,
-            bgFill: !hasFirearm ? mod.UIBgFill.Solid : mod.UIBgFill.Blur,
-            bgColor: !hasFirearm ? PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR : PROGRESS_BAR_ITEM_BASE_COLOR,
-            parent: meleeWidget,
-        });
-        mod.AddUIGadgetImage(String(MELEE), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, PROGRESS_BAR_ITEM_HEIGHT, 1), mod.UIAnchor.Center, MELEE, meleeIconWidget!);
-        ParseUI({
-            type: "Text",
-            position: [0, WEAPON_ICON_ITEM_HEIGHT],
-            size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
-            anchor: mod.UIAnchor.TopLeft,
-            textAnchor: mod.UIAnchor.Center,
-            textLabel: MakeMessage("${}", MELEE_PLAYER_COUNT),
-            parent: meleeWidget,
-        });
+        this.progressWidget?.UpdateWeaponItemWidgets();
     }
 }
 
@@ -190,6 +287,7 @@ export async function OnGameModeStarted() {
     mod.SetSpawnMode(mod.SpawnModes.AutoSpawn);
     CreateAvailableWeapons();
     UpdateWeaponToPlayerCountMap();
+    WEAPON_PLAYER_COUNT_WIDGET = new WeaponPlayerCountWidget();
 }
 
 
@@ -198,8 +296,6 @@ function ResetPlayer(player: mod.Player) {
     if (!jsPlayer) {
         return;
     }
-    jsPlayer.currentWeapon = undefined;
-    jsPlayer.has_melee_level = false;
     for (let slot of INVENTORY_SLOTS) {
         mod.RemoveEquipment(player, slot);
     }
@@ -213,18 +309,16 @@ function UpdatePlayerWeapons(player: mod.Player) {
         return;
     }
 
-    let weaponIndex = Math.floor(jsPlayer.kill_index / 2);
+    let weaponIndex = jsPlayer.getWeaponIndex();
     // Melee level after all weapons completed
     if (weaponIndex >= AVAILABLE_WEAPONS.length) {
         ResetPlayer(player);
-        jsPlayer.has_melee_level = true;
         return;
     }
     let weapon = AVAILABLE_WEAPONS[weaponIndex];
     if (!mod.HasEquipment(player, weapon)) {
         ResetPlayer(player);
         mod.AddEquipment(player, weapon);
-        jsPlayer.currentWeapon = weapon;
     }
 }
 
@@ -250,7 +344,7 @@ export function OnPlayerEarnedKill(
     if (!jsPlayer) {
         return;
     }
-    let weaponIndex = Math.floor(jsPlayer.kill_index / 2);
+    let weaponIndex = jsPlayer.getWeaponIndex();
     if (mod.EventDeathTypeCompare(eventDeathType, mod.PlayerDeathTypes.Melee)) {
         let jsOtherPlayer = JsPlayer.get(eventOtherPlayer);
         if (jsOtherPlayer) {
@@ -269,6 +363,7 @@ export function OnPlayerEarnedKill(
     }
     UpdateWeaponToPlayerCountMap();
     jsPlayer.UpdateProgressUI();
+    WEAPON_PLAYER_COUNT_WIDGET?.UpdatePlayerCountWidgets();
 }
 
 

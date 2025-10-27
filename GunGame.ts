@@ -36,19 +36,25 @@ const PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR = [0.5, 0.5, 0.5];
 const SEPARATOR_COLOR = [1, 1, 1];
 
 var WEAPON_TO_PLAYER_COUNT_MAP = new Map<mod.Weapons, number>();
+var MELEE_PLAYER_COUNT = 0;
 
 function UpdateWeaponToPlayerCountMap() {
     // Wish I could just call AllPlayers and simply iterate over it :(
     let allPlayers = JsPlayer.getAllAsArray();
+    let melee_count = 0;
     for (const weapon of AVAILABLE_WEAPONS) {
         let count = 0;
         for (const jsPlayer of allPlayers) {
             if (jsPlayer.currentWeapon === weapon) {
                 count += 1;
             }
+            if (jsPlayer.has_melee_level) {
+                melee_count += 1;
+            }
         }
         WEAPON_TO_PLAYER_COUNT_MAP.set(weapon, count);
     }
+    MELEE_PLAYER_COUNT = melee_count;
 }
 
 
@@ -57,6 +63,7 @@ class JsPlayer {
     playerId: number;
     kill_index = 0;
     currentWeapon: mod.Weapons|undefined;
+    has_melee_level = false;
 
     progressWidget: mod.UIWidget|undefined;
 
@@ -157,7 +164,24 @@ class JsPlayer {
             bgColor: !hasFirearm ? PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR : PROGRESS_BAR_ITEM_BASE_COLOR,
             parent: this.progressWidget,
         });
-        mod.AddUIGadgetImage(String(MELEE), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, PROGRESS_BAR_ITEM_HEIGHT, 1), mod.UIAnchor.Center, MELEE, meleeWidget!);
+        let meleeIconWidget = ParseUI({
+            type: "Container",
+            size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
+            anchor: mod.UIAnchor.TopLeft,
+            bgFill: !hasFirearm ? mod.UIBgFill.Solid : mod.UIBgFill.Blur,
+            bgColor: !hasFirearm ? PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR : PROGRESS_BAR_ITEM_BASE_COLOR,
+            parent: meleeWidget,
+        });
+        mod.AddUIGadgetImage(String(MELEE), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, PROGRESS_BAR_ITEM_HEIGHT, 1), mod.UIAnchor.Center, MELEE, meleeIconWidget!);
+        ParseUI({
+            type: "Text",
+            position: [0, WEAPON_ICON_ITEM_HEIGHT],
+            size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
+            anchor: mod.UIAnchor.TopLeft,
+            textAnchor: mod.UIAnchor.Center,
+            textLabel: MakeMessage("${}", MELEE_PLAYER_COUNT),
+            parent: meleeWidget,
+        });
     }
 }
 
@@ -174,6 +198,8 @@ function ResetPlayer(player: mod.Player) {
     if (!jsPlayer) {
         return;
     }
+    jsPlayer.currentWeapon = undefined;
+    jsPlayer.has_melee_level = false;
     for (let slot of INVENTORY_SLOTS) {
         mod.RemoveEquipment(player, slot);
     }
@@ -188,9 +214,10 @@ function UpdatePlayerWeapons(player: mod.Player) {
     }
 
     let weaponIndex = Math.floor(jsPlayer.kill_index / 2);
-    // Melee kill after all weapons completed
+    // Melee level after all weapons completed
     if (weaponIndex >= AVAILABLE_WEAPONS.length) {
         ResetPlayer(player);
+        jsPlayer.has_melee_level = true;
         return;
     }
     let weapon = AVAILABLE_WEAPONS[weaponIndex];

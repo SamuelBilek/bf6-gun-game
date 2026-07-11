@@ -393,6 +393,7 @@ function UpdatePlayerWeapons(player: mod.Player) {
     let weaponIndex = jsPlayer.getWeaponIndex();
     // Melee level after all weapons completed
     if (weaponIndex >= AVAILABLE_WEAPON_PACKAGES.length) {
+        mod.RemoveEquipment(player, mod.InventorySlots.PrimaryWeapon);
         return;
     }
     let weaponPackage = AVAILABLE_WEAPON_PACKAGES[weaponIndex];

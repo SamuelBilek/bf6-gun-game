@@ -1,11 +1,7 @@
 import * as modlib from "modlib";
 
 const WEAPON_LEVELS = 15;
-const AVAILABLE_MELEE = [
-    mod.Gadgets.Melee_Combat_Knife, 
-    mod.Gadgets.Melee_Hunting_Knife, 
-    mod.Gadgets.Melee_Sledgehammer
-];
+const AVAILABLE_MELEE = (Object.keys(mod.Gadgets) as Array<keyof typeof mod.Gadgets>).filter(k => isNaN(Number(k)) && String(k).startsWith("Melee")).map(k => mod.Gadgets[k]) as mod.Gadgets[];
 const MELEE = AVAILABLE_MELEE[Math.floor(Math.random() * AVAILABLE_MELEE.length)];
 const WEAPON_VALUES = (Object.keys(mod.Weapons) as Array<keyof typeof mod.Weapons>)
     .filter(k => isNaN(Number(k)) && !String(k).startsWith("BattlePickup"))

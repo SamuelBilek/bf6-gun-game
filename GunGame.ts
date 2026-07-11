@@ -12,7 +12,58 @@ const WEAPON_VALUES = (Object.keys(mod.Weapons) as Array<keyof typeof mod.Weapon
     .map(k => mod.Weapons[k]) as mod.Weapons[];
 const INVENTORY_SLOTS = (Object.keys(mod.InventorySlots) as Array<keyof typeof mod.InventorySlots>).filter(k => isNaN(Number(k))).map(k => mod.InventorySlots[k]) as mod.InventorySlots[];
 
-var AVAILABLE_WEAPONS: mod.Weapons[] = [];
+const WEAPON_ATTACHMENT_CATEGORIES: { [category: string]: mod.WeaponAttachments[] } = {
+    Ammo: [],
+    Barrel: [],
+    Bottom: [],
+    Ergonomic: [],
+    Left: [],
+    Magazine: [],
+    Muzzle: [],
+    Right: [],
+    Scope: [],
+    Top: [],
+};
+
+for (const key of Object.keys(mod.WeaponAttachments) as Array<keyof typeof mod.WeaponAttachments>) {
+    const name = String(key);
+    for (const category in WEAPON_ATTACHMENT_CATEGORIES) {
+        if (name.startsWith(category)) {
+            WEAPON_ATTACHMENT_CATEGORIES[category].push(mod.WeaponAttachments[key]);
+            break;
+        }
+    }
+}
+
+function GetRandomAttachmentForCategory(category: string): mod.WeaponAttachments | undefined {
+    const pool = WEAPON_ATTACHMENT_CATEGORIES[category];
+    if (!pool || pool.length === 0) {
+        return undefined;
+    }
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function CreateRandomWeaponPackage(): mod.WeaponPackage {
+    const weaponPackage = mod.CreateNewWeaponPackage();
+    for (const category of Object.keys(WEAPON_ATTACHMENT_CATEGORIES)) {
+        if (!(Math.random() < 0.5)) {
+            continue;
+        }
+        const attachment = GetRandomAttachmentForCategory(category);
+        if (!attachment) {
+            continue;
+        }
+        mod.AddAttachmentToWeaponPackage(attachment, weaponPackage);
+    }
+    return weaponPackage;
+}
+
+type WeaponPackage = {
+    weapon: mod.Weapons;
+    package: mod.WeaponPackage;
+};
+
+var AVAILABLE_WEAPON_PACKAGES: WeaponPackage[] = [];
 
 function CreateAvailableWeapons(): void {
   const arr = WEAPON_VALUES.slice();
@@ -20,7 +71,7 @@ function CreateAvailableWeapons(): void {
     const j = Math.floor(Math.random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
-  AVAILABLE_WEAPONS = arr.slice(0, WEAPON_LEVELS);
+  AVAILABLE_WEAPON_PACKAGES = arr.slice(0, WEAPON_LEVELS).map(weapon => ({ weapon, package: CreateRandomWeaponPackage() }));
 }
 
 
@@ -36,25 +87,25 @@ const PROGRESS_BAR_ITEM_BASE_COLOR = [0, 0, 0];
 const PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR = [0.5, 0.5, 0.5];
 const SEPARATOR_COLOR = [1, 1, 1];
 
-var WEAPON_TO_PLAYER_COUNT_MAP = new Map<mod.Weapons, number>();
+var WEAPON_PACKAGE_TO_PLAYER_COUNT_MAP = new Map<WeaponPackage, number>();
 var MELEE_PLAYER_COUNT = 0;
 
 function UpdateWeaponToPlayerCountMap() {
     // Wish I could just call AllPlayers and simply iterate over it :(
     let allPlayers = JsPlayer.getAllAsArray();
     MELEE_PLAYER_COUNT = 0;
-    for (const weapon of AVAILABLE_WEAPONS) {
-        WEAPON_TO_PLAYER_COUNT_MAP.set(weapon, 0);
+    for (const weaponPackage of AVAILABLE_WEAPON_PACKAGES) {
+        WEAPON_PACKAGE_TO_PLAYER_COUNT_MAP.set(weaponPackage, 0);
     }
     for (const jsPlayer of allPlayers) {
         let weaponIndex = jsPlayer.getWeaponIndex();
-        if (weaponIndex >= AVAILABLE_WEAPONS.length) {
+        if (weaponIndex >= AVAILABLE_WEAPON_PACKAGES.length) {
             MELEE_PLAYER_COUNT += 1;
             continue;
         }
-        let weapon = AVAILABLE_WEAPONS[weaponIndex];
-        let currentCount = WEAPON_TO_PLAYER_COUNT_MAP.get(weapon) ?? 0;
-        WEAPON_TO_PLAYER_COUNT_MAP.set(weapon, currentCount + 1);
+        let weaponPackage = AVAILABLE_WEAPON_PACKAGES[weaponIndex];
+        let currentCount = WEAPON_PACKAGE_TO_PLAYER_COUNT_MAP.get(weaponPackage) ?? 0;
+        WEAPON_PACKAGE_TO_PLAYER_COUNT_MAP.set(weaponPackage, currentCount + 1);
     }
 }
 
@@ -62,8 +113,8 @@ var GLOBAL_UI_REFRESH_NEEDED = false;
 
 class WeaponPlayerCountWidget {
     staticWidget: mod.UIWidget|undefined;
-    playerCountWidgets: Map<mod.Weapons, mod.UIWidget> = new Map();
-    prevPlayerCountMap: Map<mod.Weapons, number> = new Map();
+    playerCountWidgets: Map<WeaponPackage, mod.UIWidget> = new Map();
+    prevPlayerCountMap: Map<WeaponPackage, number> = new Map();
     meleeCountWidget: mod.UIWidget|undefined;
     prevMeleeCount: number = -1;
 
@@ -80,7 +131,7 @@ class WeaponPlayerCountWidget {
             anchor: mod.UIAnchor.TopCenter,
             bgFill: mod.UIBgFill.None,
         });
-        for (let i = 0; i < AVAILABLE_WEAPONS.length; i++) {
+        for (let i = 0; i < AVAILABLE_WEAPON_PACKAGES.length; i++) {
             modlib.ParseUI({
                 type: "Container",
                 position: [i * PROGRESS_BAR_ITEM_WIDTH, 0],
@@ -102,7 +153,7 @@ class WeaponPlayerCountWidget {
         }
         modlib.ParseUI({
             type: "Container",
-            position: [AVAILABLE_WEAPONS.length * PROGRESS_BAR_ITEM_WIDTH, 0],
+            position: [AVAILABLE_WEAPON_PACKAGES.length * PROGRESS_BAR_ITEM_WIDTH, 0],
             size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
             anchor: mod.UIAnchor.TopLeft,
             parent: this.staticWidget,
@@ -112,10 +163,10 @@ class WeaponPlayerCountWidget {
     }
 
     UpdatePlayerCountWidgets() {
-        for (const [i, weapon] of AVAILABLE_WEAPONS.entries()) {
-            let widget = this.playerCountWidgets.get(weapon);
-            let currentCount = WEAPON_TO_PLAYER_COUNT_MAP.get(weapon) ?? 0;
-            let prevCount = this.prevPlayerCountMap.get(weapon) ?? -1;
+        for (const [i, weaponPackage] of AVAILABLE_WEAPON_PACKAGES.entries()) {
+            let widget = this.playerCountWidgets.get(weaponPackage);
+            let currentCount = WEAPON_PACKAGE_TO_PLAYER_COUNT_MAP.get(weaponPackage) ?? 0;
+            let prevCount = this.prevPlayerCountMap.get(weaponPackage) ?? -1;
             let refreshNeeded = currentCount !== prevCount;
             if (widget && refreshNeeded) {
                 mod.DeleteUIWidget(widget);
@@ -130,8 +181,8 @@ class WeaponPlayerCountWidget {
                     textLabel: String(currentCount),
                     parent: this.staticWidget,
                 });
-                this.playerCountWidgets.set(weapon, widget!);
-                this.prevPlayerCountMap.set(weapon, currentCount);
+                this.playerCountWidgets.set(weaponPackage, widget!);
+                this.prevPlayerCountMap.set(weaponPackage, currentCount);
             }
         }
         let refreshNeeded = MELEE_PLAYER_COUNT !== this.prevMeleeCount;
@@ -141,7 +192,7 @@ class WeaponPlayerCountWidget {
         if (refreshNeeded) {
             this.meleeCountWidget = modlib.ParseUI({
                 type: "Text",
-                position: [AVAILABLE_WEAPONS.length * PROGRESS_BAR_ITEM_WIDTH, 0],
+                position: [AVAILABLE_WEAPON_PACKAGES.length * PROGRESS_BAR_ITEM_WIDTH, 0],
                 size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
                 anchor: mod.UIAnchor.TopLeft,
                 textAnchor: mod.UIAnchor.Center,
@@ -159,9 +210,9 @@ var WEAPON_PLAYER_COUNT_WIDGET: WeaponPlayerCountWidget|undefined = undefined;
 class WeaponProgressWidget {
     player: mod.Player;
     staticWidget: mod.UIWidget|undefined;
-    weaponItemWidgets: Map<mod.Weapons, mod.UIWidget> = new Map();
+    weaponItemWidgets: Map<WeaponPackage, mod.UIWidget> = new Map();
     meleeItemWidget: mod.UIWidget|undefined;
-    prevActiveWeapon: mod.Weapons|undefined = undefined;
+    prevActiveWeapon: WeaponPackage|undefined = undefined;
     prevMeleeActive: boolean = false;
 
     constructor(player: mod.Player) {
@@ -180,7 +231,7 @@ class WeaponProgressWidget {
             visible: true,
             bgFill: mod.UIBgFill.None,
         });
-        for (const [i, weapon] of AVAILABLE_WEAPONS.entries()) {
+        for (const [i, weaponPackage] of AVAILABLE_WEAPON_PACKAGES.entries()) {
             modlib.ParseUI({
                 type: "Container",
                 position: [(i + 1) * PROGRESS_BAR_ITEM_WIDTH, 0],
@@ -194,11 +245,11 @@ class WeaponProgressWidget {
     }
     UpdateWeaponItemWidgets() {
         let hasFirearm = false;
-        for (const [i, weapon] of AVAILABLE_WEAPONS.entries()) {
-            let hasEquipment = mod.HasEquipment(this.player, weapon);
+        for (const [i, weaponPackage] of AVAILABLE_WEAPON_PACKAGES.entries()) {
+            let hasEquipment = mod.HasEquipment(this.player, weaponPackage.weapon);
             hasFirearm = hasFirearm || hasEquipment;
-            let refreshNeeded = (hasEquipment && (this.prevActiveWeapon !== weapon) || (!hasEquipment && this.prevActiveWeapon === weapon));
-            let widget = this.weaponItemWidgets.get(weapon);
+            let refreshNeeded = (hasEquipment && (this.prevActiveWeapon !== weaponPackage) || (!hasEquipment && this.prevActiveWeapon === weaponPackage));
+            let widget = this.weaponItemWidgets.get(weaponPackage);
             if (widget && refreshNeeded) {
                 mod.DeleteUIWidget(widget);
                 widget = undefined;
@@ -213,9 +264,9 @@ class WeaponProgressWidget {
                     bgColor: hasEquipment ? PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR : PROGRESS_BAR_ITEM_BASE_COLOR,
                     parent: this.staticWidget,
                 });
-                mod.AddUIWeaponImage(String(weapon), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT, 1), mod.UIAnchor.Center, weapon, widget!);
-                this.weaponItemWidgets.set(weapon, widget!);
-                this.prevActiveWeapon = weapon;
+                mod.AddUIWeaponImage(String(weaponPackage.weapon), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT, 1), mod.UIAnchor.Center, weaponPackage.weapon, widget!, weaponPackage.package);
+                this.weaponItemWidgets.set(weaponPackage, widget!);
+                this.prevActiveWeapon = weaponPackage;
             }
         }
         let refreshNeeded = this.prevMeleeActive === hasFirearm;
@@ -226,7 +277,7 @@ class WeaponProgressWidget {
         if (!this.meleeItemWidget) {
             this.meleeItemWidget = modlib.ParseUI({
                 type: "Container",
-                position: [AVAILABLE_WEAPONS.length * PROGRESS_BAR_ITEM_WIDTH, 0],
+                position: [AVAILABLE_WEAPON_PACKAGES.length * PROGRESS_BAR_ITEM_WIDTH, 0],
                 size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
                 anchor: mod.UIAnchor.TopLeft,
                 bgFill: !hasFirearm ? mod.UIBgFill.Solid : mod.UIBgFill.Blur,
@@ -341,11 +392,11 @@ function UpdatePlayerWeapons(player: mod.Player) {
     ResetPlayer(player);
     let weaponIndex = jsPlayer.getWeaponIndex();
     // Melee level after all weapons completed
-    if (weaponIndex >= AVAILABLE_WEAPONS.length) {
+    if (weaponIndex >= AVAILABLE_WEAPON_PACKAGES.length) {
         return;
     }
-    let weapon = AVAILABLE_WEAPONS[weaponIndex];
-    mod.AddEquipment(player, weapon, mod.InventorySlots.PrimaryWeapon);
+    let weaponPackage = AVAILABLE_WEAPON_PACKAGES[weaponIndex];
+    mod.AddEquipment(player, weaponPackage.weapon, weaponPackage.package, mod.InventorySlots.PrimaryWeapon);
 }
 
 
@@ -376,7 +427,7 @@ export function OnPlayerEarnedKill(
             jsOtherPlayer.kill_index = Math.max(jsOtherPlayer.kill_index - 1, 0);
         }
         // Knife kill after all weapons completed
-        if (weaponIndexPrev >= AVAILABLE_WEAPONS.length) {
+        if (weaponIndexPrev >= AVAILABLE_WEAPON_PACKAGES.length) {
             mod.EndGameMode(eventPlayer);
             return;
         }

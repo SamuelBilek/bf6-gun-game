@@ -41,8 +41,9 @@ function GetRandomAttachmentForCategory(category: string): mod.WeaponAttachments
 
 function CreateRandomWeaponPackage(): mod.WeaponPackage {
     const weaponPackage = mod.CreateNewWeaponPackage();
+    const ATTACHMENT_PROBABILITY = 0.8;
     for (const category of Object.keys(WEAPON_ATTACHMENT_CATEGORIES)) {
-        if (!(Math.random() < 0.5)) {
+        if ((Math.random() < ATTACHMENT_PROBABILITY)) {
             continue;
         }
         const attachment = GetRandomAttachmentForCategory(category);

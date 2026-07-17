@@ -81,7 +81,8 @@ const PROGRESS_BAR_WIDTH = PROGRESS_BAR_ITEM_WIDTH * (WEAPON_LEVELS + 1) + SEPAR
 const PROGRESS_BAR_Y_OFFSET = 30;
 
 const PROGRESS_BAR_ITEM_BASE_COLOR = [0, 0, 0];
-const PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR = [0.5, 0.5, 0.5];
+const PROGRESS_BAR_PLAYER_ITEM_HIGHLIGHT_COLOR = [0.0, 0.65, 1.0]; // Battlefield friendly blue
+const PROGRESS_BAR_ENEMY_ITEM_HIGHLIGHT_COLOR = [1.0, 0.45, 0.05]; // Battlefield enemy orange
 const SEPARATOR_COLOR = [1, 1, 1];
 
 var WEAPON_PACKAGE_TO_PLAYER_COUNT_MAP = new Map<WeaponPackage, number>();
@@ -204,16 +205,32 @@ class WeaponPlayerCountWidget {
 var WEAPON_PLAYER_COUNT_WIDGET: WeaponPlayerCountWidget|undefined = undefined;
 
 
+type HighlightState = "self" | "other" | "none";
+
+function GetHighlightBgFill(state: HighlightState): mod.UIBgFill {
+    return state === "none" ? mod.UIBgFill.Blur : mod.UIBgFill.Solid;
+}
+
+function GetHighlightBgColor(state: HighlightState): number[] {
+    if (state === "self") {
+        return PROGRESS_BAR_PLAYER_ITEM_HIGHLIGHT_COLOR;
+    }
+    if (state === "other") {
+        return PROGRESS_BAR_ENEMY_ITEM_HIGHLIGHT_COLOR;
+    }
+    return PROGRESS_BAR_ITEM_BASE_COLOR;
+}
+
 class WeaponProgressWidget {
-    player: mod.Player;
+    jsPlayer: JsPlayer;
     staticWidget: mod.UIWidget|undefined;
     weaponItemWidgets: Map<WeaponPackage, mod.UIWidget> = new Map();
+    prevWeaponHighlights: Map<WeaponPackage, HighlightState> = new Map();
     meleeItemWidget: mod.UIWidget|undefined;
-    prevActiveWeapon: WeaponPackage|undefined = undefined;
-    prevMeleeActive: boolean = false;
+    prevMeleeHighlight: HighlightState|undefined = undefined;
 
-    constructor(player: mod.Player) {
-        this.player = player;
+    constructor(jsPlayer: JsPlayer) {
+        this.jsPlayer = jsPlayer;
         this.CreateStaticWidget();
         this.UpdateWeaponItemWidgets();
     }
@@ -224,11 +241,11 @@ class WeaponProgressWidget {
             position: [0, PROGRESS_BAR_Y_OFFSET],
             size: [PROGRESS_BAR_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
             anchor: mod.UIAnchor.TopCenter,
-            playerId: this.player,
+            playerId: this.jsPlayer.player,
             visible: true,
             bgFill: mod.UIBgFill.None,
         });
-        for (const [i, weaponPackage] of AVAILABLE_WEAPON_PACKAGES.entries()) {
+        for (let i = 0; i < AVAILABLE_WEAPON_PACKAGES.length; i++) {
             modlib.ParseUI({
                 type: "Container",
                 position: [(i + 1) * PROGRESS_BAR_ITEM_WIDTH, 0],
@@ -240,50 +257,65 @@ class WeaponProgressWidget {
             });
         }
     }
+
     UpdateWeaponItemWidgets() {
-        let hasFirearm = false;
+        let weaponIndex = this.jsPlayer.getWeaponIndex();
         for (const [i, weaponPackage] of AVAILABLE_WEAPON_PACKAGES.entries()) {
-            let hasEquipment = mod.HasEquipment(this.player, weaponPackage.weapon);
-            hasFirearm = hasFirearm || hasEquipment;
-            let refreshNeeded = (hasEquipment && (this.prevActiveWeapon !== weaponPackage) || (!hasEquipment && this.prevActiveWeapon === weaponPackage));
+            let isCurrentWeapon = i === weaponIndex;
+            // Count map includes this player, so exclude self when checking for others
+            let otherPlayerCount = (WEAPON_PACKAGE_TO_PLAYER_COUNT_MAP.get(weaponPackage) ?? 0) - (isCurrentWeapon ? 1 : 0);
+            let highlight: HighlightState = isCurrentWeapon ? "self" : (otherPlayerCount > 0 ? "other" : "none");
+            if (this.prevWeaponHighlights.get(weaponPackage) === highlight) {
+                continue;
+            }
             let widget = this.weaponItemWidgets.get(weaponPackage);
-            if (widget && refreshNeeded) {
+            if (widget) {
                 mod.DeleteUIWidget(widget);
-                widget = undefined;
             }
-            if (!widget) {
-                widget = modlib.ParseUI({
-                    type: "Container",
-                    position: [i * PROGRESS_BAR_ITEM_WIDTH, 0],
-                    size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
-                    anchor: mod.UIAnchor.TopLeft,
-                    bgFill: hasEquipment ? mod.UIBgFill.Solid : mod.UIBgFill.Blur,
-                    bgColor: hasEquipment ? PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR : PROGRESS_BAR_ITEM_BASE_COLOR,
-                    parent: this.staticWidget,
-                });
-                mod.AddUIWeaponImage(String(weaponPackage.weapon), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT, 1), mod.UIAnchor.Center, weaponPackage.weapon, widget!, weaponPackage.package);
-                this.weaponItemWidgets.set(weaponPackage, widget!);
-                this.prevActiveWeapon = weaponPackage;
-            }
-        }
-        let refreshNeeded = this.prevMeleeActive === hasFirearm;
-        if (this.meleeItemWidget && refreshNeeded) {
-            mod.DeleteUIWidget(this.meleeItemWidget);
-            this.meleeItemWidget = undefined;
-        }
-        if (!this.meleeItemWidget) {
-            this.meleeItemWidget = modlib.ParseUI({
+            widget = modlib.ParseUI({
                 type: "Container",
-                position: [AVAILABLE_WEAPON_PACKAGES.length * PROGRESS_BAR_ITEM_WIDTH, 0],
+                position: [i * PROGRESS_BAR_ITEM_WIDTH, 0],
                 size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
                 anchor: mod.UIAnchor.TopLeft,
-                bgFill: !hasFirearm ? mod.UIBgFill.Solid : mod.UIBgFill.Blur,
-                bgColor: !hasFirearm ? PROGRESS_BAR_ITEM_HIGHLIGHT_COLOR : PROGRESS_BAR_ITEM_BASE_COLOR,
+                bgFill: GetHighlightBgFill(highlight),
+                bgColor: GetHighlightBgColor(highlight),
                 parent: this.staticWidget,
             });
-            mod.AddUIGadgetImage(String(MELEE), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT, 1), mod.UIAnchor.Center, MELEE, this.meleeItemWidget!);
-            this.prevMeleeActive = !hasFirearm;
+            mod.AddUIWeaponImage(String(weaponPackage.weapon), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT, 1), mod.UIAnchor.Center, weaponPackage.weapon, widget!, weaponPackage.package);
+            this.weaponItemWidgets.set(weaponPackage, widget!);
+            this.prevWeaponHighlights.set(weaponPackage, highlight);
         }
+        let isMeleeLevel = weaponIndex >= AVAILABLE_WEAPON_PACKAGES.length;
+        let otherMeleePlayerCount = MELEE_PLAYER_COUNT - (isMeleeLevel ? 1 : 0);
+        let meleeHighlight: HighlightState = isMeleeLevel ? "self" : (otherMeleePlayerCount > 0 ? "other" : "none");
+        if (this.prevMeleeHighlight === meleeHighlight) {
+            return;
+        }
+        if (this.meleeItemWidget) {
+            mod.DeleteUIWidget(this.meleeItemWidget);
+        }
+        this.meleeItemWidget = modlib.ParseUI({
+            type: "Container",
+            position: [AVAILABLE_WEAPON_PACKAGES.length * PROGRESS_BAR_ITEM_WIDTH, 0],
+            size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT],
+            anchor: mod.UIAnchor.TopLeft,
+            bgFill: GetHighlightBgFill(meleeHighlight),
+            bgColor: GetHighlightBgColor(meleeHighlight),
+            parent: this.staticWidget,
+        });
+        mod.AddUIGadgetImage(String(MELEE), mod.CreateVector(0, 0, 1), mod.CreateVector(PROGRESS_BAR_ITEM_WIDTH, WEAPON_ICON_ITEM_HEIGHT, 1), mod.UIAnchor.Center, MELEE, this.meleeItemWidget!);
+        this.prevMeleeHighlight = meleeHighlight;
+    }
+
+    Destroy() {
+        if (this.staticWidget) {
+            mod.DeleteUIWidget(this.staticWidget);
+            this.staticWidget = undefined;
+        }
+        this.weaponItemWidgets.clear();
+        this.prevWeaponHighlights.clear();
+        this.meleeItemWidget = undefined;
+        this.prevMeleeHighlight = undefined;
     }
 }
 
@@ -294,14 +326,11 @@ class JsPlayer {
 
     progressWidget: WeaponProgressWidget|undefined;
 
-    static playerInstances: mod.Player[] = [];
-
     constructor(player: mod.Player) {
         this.player = player;
         this.playerId = mod.GetObjId(player);
-        JsPlayer.playerInstances.push(this.player);
 
-        this.progressWidget = new WeaponProgressWidget(this.player);
+        this.progressWidget = new WeaponProgressWidget(this);
         this.UpdateProgressUI();
     }
 
@@ -331,6 +360,16 @@ class JsPlayer {
         return Object.values(this.#allJsPlayers);
     }
 
+    static removeInvalidPlayers() {
+        for (const id in this.#allJsPlayers) {
+            const jsPlayer = this.#allJsPlayers[id];
+            if (jsPlayer.player == null || !mod.IsPlayerValid(jsPlayer.player)) {
+                jsPlayer.progressWidget?.Destroy();
+                delete this.#allJsPlayers[id];
+            }
+        }
+    }
+
     UpdateProgressUI() {
         this.progressWidget?.UpdateWeaponItemWidgets();
     }
@@ -339,7 +378,11 @@ class JsPlayer {
 
 export function OngoingGlobal() {
     if (GLOBAL_UI_REFRESH_NEEDED) {
+        // Counts must be up to date before any widget refresh reads them
         UpdateWeaponToPlayerCountMap();
+        for (const jsPlayer of JsPlayer.getAllAsArray()) {
+            jsPlayer?.UpdateProgressUI();
+        }
         WEAPON_PLAYER_COUNT_WIDGET?.UpdatePlayerCountWidgets();
     }
     GLOBAL_UI_REFRESH_NEEDED = false;
@@ -363,6 +406,8 @@ export function OnPlayerJoinGame(eventPlayer: mod.Player) {
 
 
 export function OnPlayerLeaveGame(eventNumber: number) {
+    // Leavers must not keep contributing to weapon player counts
+    JsPlayer.removeInvalidPlayers();
     GLOBAL_UI_REFRESH_NEEDED = true;
 }
 
@@ -414,6 +459,7 @@ export function OnPlayerEarnedKill(
     eventDeathType: mod.DeathType,
     eventWeaponUnlock: mod.WeaponUnlock
 ): void {
+    GLOBAL_UI_REFRESH_NEEDED = true;
     let jsPlayer = JsPlayer.get(eventPlayer);
     if (!jsPlayer) {
         return;
@@ -436,9 +482,7 @@ export function OnPlayerEarnedKill(
     let weaponIndexNew = jsPlayer.getWeaponIndex();
     if (weaponIndexNew > weaponIndexPrev) {
         UpdatePlayerWeapons(eventPlayer);
-        jsPlayer.UpdateProgressUI();
     }
-    GLOBAL_UI_REFRESH_NEEDED = true;
 }
 
 

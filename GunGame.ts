@@ -176,7 +176,7 @@ class WeaponPlayerCountWidget {
                     size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
                     anchor: mod.UIAnchor.TopLeft,
                     textAnchor: mod.UIAnchor.Center,
-                    textLabel: String(currentCount),
+                    textLabel: mod.Message(mod.stringkeys.playerCount, currentCount),
                     parent: this.staticWidget,
                 });
                 this.playerCountWidgets.set(weaponPackage, widget!);
@@ -194,7 +194,7 @@ class WeaponPlayerCountWidget {
                 size: [PROGRESS_BAR_ITEM_WIDTH, WEAPON_COUNT_ITEM_HEIGHT],
                 anchor: mod.UIAnchor.TopLeft,
                 textAnchor: mod.UIAnchor.Center,
-                textLabel: String(MELEE_PLAYER_COUNT),
+                textLabel: mod.Message(mod.stringkeys.playerCount, MELEE_PLAYER_COUNT),
                 parent: this.staticWidget,
             });
             this.prevMeleeCount = MELEE_PLAYER_COUNT;
@@ -393,10 +393,7 @@ export async function OnGameModeStarted() {
     mod.SetSpawnMode(mod.SpawnModes.AutoSpawn);
     CreateAvailableWeapons();
     GLOBAL_UI_REFRESH_NEEDED = true;
-    // For some reason with the later version of the SDK, displaying using the modlib.ParseUI() fails to display the player count
-    // Instead it shows <unknown_string>
-    // TODO: Uncomment this when the display bug is fixed
-    //WEAPON_PLAYER_COUNT_WIDGET = new WeaponPlayerCountWidget();
+    WEAPON_PLAYER_COUNT_WIDGET = new WeaponPlayerCountWidget();
 }
 
 

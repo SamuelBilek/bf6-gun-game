@@ -206,7 +206,17 @@ var WEAPON_PLAYER_COUNT_WIDGET: WeaponPlayerCountWidget|undefined = undefined;
 
 var LEAD_VO: mod.VO|undefined = undefined;
 var PREV_SOLE_LEADER_ID: number|undefined = undefined;
+var PREV_MAX_WEAPON_INDEX: number|undefined = undefined;
 var MELEE_VO_PLAYED = false;
+
+// As the match progresses, the music urgency parameter is increased to make the music more intense
+const MAX_WEAPON_INDEX_PERCENTAGE_TO_MUSIC_URGENCY_MAP = new Map<number, number>([
+    [0, 0],
+    [25, 1],
+    [50, 2],
+    [75, 3],
+    [100, 4],
+]);
 
 function PlayLeadVO(event: mod.VoiceOverEvents2D, player: mod.Player) {
     if (LEAD_VO) {
@@ -226,15 +236,31 @@ function CheckLeadChange() {
         MELEE_VO_PLAYED = true;
         PREV_SOLE_LEADER_ID = meleeReacher.playerId;
         for (const jsPlayer of allPlayers) {
-            if (jsPlayer === meleeReacher) {
-                PlayLeadVO(mod.VoiceOverEvents2D.ProgressLateWinning, jsPlayer.player);
-            } else {
-                PlayLeadVO(mod.VoiceOverEvents2D.ProgressLateLosing, jsPlayer.player);
-            }
+            let isReacher = jsPlayer === meleeReacher;
+            PlayLeadVO(
+                isReacher ? mod.VoiceOverEvents2D.ProgressLateWinning : mod.VoiceOverEvents2D.ProgressLateLosing,
+                jsPlayer.player
+            );
+            // Endgame music: winning variant for the melee reacher, losing for the rest
+            mod.SetMusicParam(mod.MusicParams.Core_IsWinning, isReacher ? 1 : 0, jsPlayer.player);
+            mod.SetMusicParam(mod.MusicParams.Core_Urgency, 4, jsPlayer.player);
         }
         return;
     }
     let maxLevel = Math.max(...allPlayers.map(p => p.getWeaponIndex()));
+    if (PREV_MAX_WEAPON_INDEX === undefined || maxLevel > PREV_MAX_WEAPON_INDEX) {
+        PREV_MAX_WEAPON_INDEX = maxLevel;
+        let completionPercentage = maxLevel / WEAPON_LEVELS * 100;
+        let urgency = 0;
+        for (const key of MAX_WEAPON_INDEX_PERCENTAGE_TO_MUSIC_URGENCY_MAP.keys()) {
+            if (completionPercentage >= key) {
+                urgency = MAX_WEAPON_INDEX_PERCENTAGE_TO_MUSIC_URGENCY_MAP.get(key) ?? 0;
+            }
+        }
+        for (const jsPlayer of allPlayers) {
+            mod.SetMusicParam(mod.MusicParams.Core_Urgency, urgency, jsPlayer.player);
+        }
+    }
     let playersAtMax = allPlayers.filter(p => p.getWeaponIndex() === maxLevel);
     // Being "in the lead" only means something with someone to lead against
     let soleLeader = playersAtMax.length === 1 && allPlayers.length > 1 ? playersAtMax[0] : undefined;
@@ -458,6 +484,8 @@ export async function OnGameModeStarted() {
         mod.CreateVector(0, 0, 0),
         mod.CreateVector(0, 0, 0)
     ) as mod.VO;
+    mod.LoadMusic(mod.MusicPackages.Core);
+    mod.PlayMusic(mod.MusicEvents.Core_Deploy_Loop);
 }
 
 
@@ -530,11 +558,11 @@ export function OnPlayerEarnedKill(
     eventWeaponUnlock: mod.WeaponUnlock
 ): void {
     GLOBAL_UI_REFRESH_NEEDED = true;
-    let jsPlayer = JsPlayer.get(eventPlayer);
-    if (!jsPlayer) {
+    let thisJsPlayer = JsPlayer.get(eventPlayer);
+    if (!thisJsPlayer) {
         return;
     }
-    let weaponIndexPrev = jsPlayer.getWeaponIndex();
+    let weaponIndexPrev = thisJsPlayer.getWeaponIndex();
     if (mod.EventDeathTypeCompare(eventDeathType, mod.PlayerDeathTypes.Melee)) {
         let jsOtherPlayer = JsPlayer.get(eventOtherPlayer);
         if (jsOtherPlayer) {
@@ -542,14 +570,18 @@ export function OnPlayerEarnedKill(
         }
         // Knife kill after all weapons completed
         if (weaponIndexPrev >= AVAILABLE_WEAPON_PACKAGES.length) {
+            for (const jsPlayer of JsPlayer.getAllAsArray()) {
+                mod.SetMusicParam(mod.MusicParams.Core_IsWinning, jsPlayer === thisJsPlayer ? 1 : 0, jsPlayer.player);
+                mod.PlayMusic(mod.MusicEvents.Core_EndOfRound_Loop, jsPlayer.player);
+            }
             mod.EndGameMode(eventPlayer);
             return;
         }
         // Extra point for melee kill, but only if not game-ending
-        jsPlayer.kill_index += 1;
+        thisJsPlayer.kill_index += 1;
     }
-    jsPlayer.kill_index += 1;
-    let weaponIndexNew = jsPlayer.getWeaponIndex();
+    thisJsPlayer.kill_index += 1;
+    let weaponIndexNew = thisJsPlayer.getWeaponIndex();
     if (weaponIndexNew > weaponIndexPrev) {
         UpdatePlayerWeapons(eventPlayer);
     }

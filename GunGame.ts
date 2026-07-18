@@ -215,9 +215,9 @@ var MELEE_VO_PLAYED = false;
 // As the match progresses, the music urgency parameter is increased to make the music more intense
 const MAX_WEAPON_INDEX_PERCENTAGE_TO_MUSIC_URGENCY_MAP = new Map<number, number>([
     [0, 0],
-    [25, 1],
-    [50, 2],
-    [75, 3],
+    [50, 1],
+    [66.6, 2],
+    [83.2, 3],
     [100, 4],
 ]);
 

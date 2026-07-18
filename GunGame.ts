@@ -204,6 +204,9 @@ class WeaponPlayerCountWidget {
 
 var WEAPON_PLAYER_COUNT_WIDGET: WeaponPlayerCountWidget|undefined = undefined;
 
+// Unused by the level, reserved for the winner at game end so the victory screen is theirs alone
+const WINNER_TEAM_ID = 9;
+
 var LEAD_VO: mod.VO|undefined = undefined;
 var PREV_SOLE_LEADER_ID: number|undefined = undefined;
 var PREV_MAX_WEAPON_INDEX: number|undefined = undefined;
@@ -574,6 +577,8 @@ export function OnPlayerEarnedKill(
                 mod.SetMusicParam(mod.MusicParams.Core_IsWinning, jsPlayer === thisJsPlayer ? 1 : 0, jsPlayer.player);
                 mod.PlayMusic(mod.MusicEvents.Core_EndOfRound_Loop, jsPlayer.player);
             }
+            // EndGameMode awards the win to the whole team -> move winner to a separate team
+            mod.SetTeam(eventPlayer, mod.GetTeam(WINNER_TEAM_ID));
             mod.EndGameMode(eventPlayer);
             return;
         }

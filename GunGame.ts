@@ -204,6 +204,63 @@ class WeaponPlayerCountWidget {
 
 var WEAPON_PLAYER_COUNT_WIDGET: WeaponPlayerCountWidget|undefined = undefined;
 
+var LEAD_VO: mod.VO|undefined = undefined;
+var PREV_SOLE_LEADER_ID: number|undefined = undefined;
+var MELEE_VO_PLAYED = false;
+
+function PlayLeadVO(event: mod.VoiceOverEvents2D, player: mod.Player) {
+    if (LEAD_VO) {
+        mod.PlayVO(LEAD_VO, event, mod.VoiceOverFlags.Alpha, player);
+    }
+}
+
+function CheckLeadChange() {
+    // Once someone hits melee level nobody can be passed anymore; later melee
+    // reachers are intentionally silent
+    if (MELEE_VO_PLAYED) {
+        return;
+    }
+    let allPlayers = JsPlayer.getAllAsArray();
+    let meleeReacher = allPlayers.find(p => p.getWeaponIndex() >= AVAILABLE_WEAPON_PACKAGES.length);
+    if (meleeReacher) {
+        MELEE_VO_PLAYED = true;
+        PREV_SOLE_LEADER_ID = meleeReacher.playerId;
+        for (const jsPlayer of allPlayers) {
+            if (jsPlayer === meleeReacher) {
+                PlayLeadVO(mod.VoiceOverEvents2D.ProgressLateWinning, jsPlayer.player);
+            } else {
+                PlayLeadVO(mod.VoiceOverEvents2D.ProgressLateLosing, jsPlayer.player);
+            }
+        }
+        return;
+    }
+    let maxLevel = Math.max(...allPlayers.map(p => p.getWeaponIndex()));
+    let playersAtMax = allPlayers.filter(p => p.getWeaponIndex() === maxLevel);
+    // Being "in the lead" only means something with someone to lead against
+    let soleLeader = playersAtMax.length === 1 && allPlayers.length > 1 ? playersAtMax[0] : undefined;
+    // Getting tied changes nothing: the old leader keeps their status quietly
+    // until someone strictly surpasses them
+    if (!soleLeader || soleLeader.playerId === PREV_SOLE_LEADER_ID) {
+        return;
+    }
+    PlayLeadVO(mod.VoiceOverEvents2D.ProgressMidWinning, soleLeader.player);
+    if (PREV_SOLE_LEADER_ID === undefined) {
+        // First lead of the round: everyone else learns they are behind
+        for (const jsPlayer of allPlayers) {
+            if (jsPlayer !== soleLeader) {
+                PlayLeadVO(mod.VoiceOverEvents2D.ProgressMidLosing, jsPlayer.player);
+            }
+        }
+    } else {
+        // Previous leader got passed; tell them if they are still here
+        let prevLeader = allPlayers.find(p => p.playerId === PREV_SOLE_LEADER_ID);
+        if (prevLeader) {
+            PlayLeadVO(mod.VoiceOverEvents2D.ProgressMidLosing, prevLeader.player);
+        }
+    }
+    PREV_SOLE_LEADER_ID = soleLeader.playerId;
+}
+
 
 type HighlightState = "self" | "other" | "none";
 
@@ -323,6 +380,7 @@ class JsPlayer {
     player: mod.Player;
     playerId: number;
     kill_index = 0;
+    spawnedAtLeastOnce = false;
 
     progressWidget: WeaponProgressWidget|undefined;
 
@@ -384,6 +442,7 @@ export function OngoingGlobal() {
             jsPlayer?.UpdateProgressUI();
         }
         WEAPON_PLAYER_COUNT_WIDGET?.UpdatePlayerCountWidgets();
+        CheckLeadChange();
     }
     GLOBAL_UI_REFRESH_NEEDED = false;
 }
@@ -394,6 +453,11 @@ export async function OnGameModeStarted() {
     CreateAvailableWeapons();
     GLOBAL_UI_REFRESH_NEEDED = true;
     WEAPON_PLAYER_COUNT_WIDGET = new WeaponPlayerCountWidget();
+    LEAD_VO = mod.SpawnObject(
+        mod.RuntimeSpawn_Common.SFX_VOModule_OneShot2D,
+        mod.CreateVector(0, 0, 0),
+        mod.CreateVector(0, 0, 0)
+    ) as mod.VO;
 }
 
 
@@ -440,12 +504,21 @@ function UpdatePlayerWeapons(player: mod.Player) {
 }
 
 
-export function OnPlayerDeployed(eventPlayer: mod.Player): void {
+export async function OnPlayerDeployed(eventPlayer: mod.Player): Promise<void> {
     UpdatePlayerWeapons(eventPlayer);
     GLOBAL_UI_REFRESH_NEEDED = true;
     let jsPlayer = JsPlayer.get(eventPlayer);
     if (jsPlayer) {
         jsPlayer.UpdateProgressUI();
+        if (!jsPlayer.spawnedAtLeastOnce) {
+            jsPlayer.spawnedAtLeastOnce = true;
+            // VO fired at the exact deploy moment gets swallowed by the
+            // deploy transition; give it a moment to finish
+            await mod.Wait(3);
+            if (mod.IsPlayerValid(eventPlayer)) {
+                PlayLeadVO(mod.VoiceOverEvents2D.RoundStartGeneric, eventPlayer);
+            }
+        }
     }
 }
 
